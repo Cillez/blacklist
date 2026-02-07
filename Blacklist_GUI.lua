@@ -6,6 +6,7 @@ local ROW_HEIGHT = 22
 local VISIBLE_ROWS = 14
 local currentFilter = ""
 local editingPlayer = nil
+local editingReason = ""
 
 -- Column layout constants (all relative to inset left edge)
 local COL_NAME_X   = 10
@@ -361,17 +362,25 @@ StaticPopupDialogs["BLACKLIST_EDIT_REASON"] = {
     editBoxWidth = 260,
     maxLetters = 128,
     OnShow = function(self)
-        local name = self.data
-        local entry = Blacklist:GetPlayer(name)
+        local entry = Blacklist:GetPlayer(editingPlayer)
         if entry and entry.reason then
             self.editBox:SetText(entry.reason)
+            editingReason = entry.reason
+        else
+            self.editBox:SetText("")
+            editingReason = ""
         end
-        self.editBox:SetFocus()
-        self.editBox:HighlightText()
+        self.editBox:SetAutoFocus(false)
+        self.editBox:ClearFocus()
     end,
     OnAccept = function(self)
-        local name = self.data
-        local reason = strtrim(self.editBox:GetText() or "")
+        local name = editingPlayer
+        local reason = editingReason
+        -- Try reading directly from the edit box as well
+        if self and self.editBox then
+            reason = self.editBox:GetText() or reason
+        end
+        reason = strtrim(reason or "")
         local entry = Blacklist:GetPlayer(name)
         if entry then
             entry.reason = reason
@@ -379,14 +388,16 @@ StaticPopupDialogs["BLACKLIST_EDIT_REASON"] = {
             Blacklist_GUI_Refresh()
         end
     end,
+    EditBoxOnTextChanged = function(self)
+        editingReason = self:GetText() or ""
+    end,
     EditBoxOnEnterPressed = function(self)
         local parent = self:GetParent()
-        local name = parent.data
         local reason = strtrim(self:GetText() or "")
-        local entry = Blacklist:GetPlayer(name)
+        local entry = Blacklist:GetPlayer(editingPlayer)
         if entry then
             entry.reason = reason
-            Blacklist:Print(name .. " reason updated.", "SUCCESS")
+            Blacklist:Print(editingPlayer .. " reason updated.", "SUCCESS")
             Blacklist_GUI_Refresh()
         end
         parent:Hide()
@@ -413,7 +424,9 @@ StaticPopupDialogs["BLACKLIST_CLEAR_ALL"] = {
 }
 
 function ShowEditPopup(name)
-    local popup = StaticPopup_Show("BLACKLIST_EDIT_REASON", name)
+    editingPlayer = name
+    editingReason = ""
+    local popup = StaticPopup_Show("BLACKLIST_EDIT_REASON", name, nil, name)
     if popup then
         popup.data = name
     end
