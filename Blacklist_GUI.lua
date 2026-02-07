@@ -2,10 +2,16 @@
 -- Main list management window with search, add, edit, and remove
 
 local GUI = nil
-local ROW_HEIGHT = 24
+local ROW_HEIGHT = 22
 local VISIBLE_ROWS = 14
 local currentFilter = ""
 local editingPlayer = nil
+
+-- Column layout constants (all relative to inset left edge)
+local COL_NAME_X   = 10
+local COL_REASON_X = 140
+local COL_DATE_X   = 316
+local SCROLL_PAD   = 6
 
 -- ============================================
 -- MAIN FRAME
@@ -15,7 +21,7 @@ local function CreateGUI()
     if GUI then return end
 
     GUI = CreateFrame("Frame", "BlacklistGUIFrame", UIParent, "BasicFrameTemplateWithInset")
-    GUI:SetSize(480, 480)
+    GUI:SetSize(480, 520)
     GUI:SetPoint("CENTER")
     GUI:SetMovable(true)
     GUI:SetClampedToScreen(true)
@@ -29,7 +35,6 @@ local function CreateGUI()
     -- Resolve inset frame (varies by client version)
     local inset = GUI.InsetFrame or GUI.Inset
     if not inset then
-        -- Fallback: create our own content area inside the frame
         inset = CreateFrame("Frame", nil, GUI)
         inset:SetPoint("TOPLEFT", 4, -24)
         inset:SetPoint("BOTTOMRIGHT", -4, 4)
@@ -41,9 +46,9 @@ local function CreateGUI()
     GUI.title:SetPoint("TOP", 0, -5)
     GUI.title:SetText("|cffcc3333Blacklist|r")
 
-    -- Player count
+    -- Player count (top-right, inside the title bar)
     GUI.countText = GUI:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    GUI.countText:SetPoint("TOPRIGHT", -30, -5)
+    GUI.countText:SetPoint("TOPRIGHT", -30, -7)
     GUI.countText:SetTextColor(0.7, 0.7, 0.7)
 
     -- ESC to close
@@ -53,20 +58,34 @@ local function CreateGUI()
     -- SEARCH BAR
     -- ============================================
     local searchBox = CreateFrame("EditBox", "BlacklistSearchBox", inset, "InputBoxTemplate")
-    searchBox:SetPoint("TOPLEFT", 10, -8)
-    searchBox:SetSize(200, 20)
+    searchBox:SetPoint("TOPLEFT", COL_NAME_X, -10)
+    searchBox:SetSize(220, 20)
     searchBox:SetAutoFocus(false)
     searchBox:SetMaxLetters(30)
 
-    -- Search label
-    local searchLabel = inset:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    searchLabel:SetPoint("RIGHT", searchBox, "LEFT", -4, 0)
-    searchLabel:SetText("Search:")
+    -- Placeholder text inside the search box
+    local searchPlaceholder = searchBox:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    searchPlaceholder:SetPoint("LEFT", 6, 0)
+    searchPlaceholder:SetText("Search names...")
+    searchPlaceholder:SetTextColor(0.45, 0.45, 0.45)
 
     searchBox:SetScript("OnTextChanged", function(self, userInput)
         if not userInput then return end
         currentFilter = self:GetText()
+        if currentFilter ~= "" then
+            searchPlaceholder:Hide()
+        else
+            searchPlaceholder:Show()
+        end
         Blacklist_GUI_Refresh()
+    end)
+    searchBox:SetScript("OnEditFocusGained", function(self)
+        searchPlaceholder:Hide()
+    end)
+    searchBox:SetScript("OnEditFocusLost", function(self)
+        if self:GetText() == "" then
+            searchPlaceholder:Show()
+        end
     end)
     searchBox:SetScript("OnEnterPressed", function(self)
         self:ClearFocus()
@@ -75,6 +94,7 @@ local function CreateGUI()
         self:SetText("")
         self:ClearFocus()
         currentFilter = ""
+        searchPlaceholder:Show()
         Blacklist_GUI_Refresh()
     end)
 
@@ -83,35 +103,36 @@ local function CreateGUI()
     -- ============================================
     -- COLUMN HEADERS
     -- ============================================
-    local headerY = -34
+    local headerY = -38
+
     local nameHeader = inset:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    nameHeader:SetPoint("TOPLEFT", 10, headerY)
+    nameHeader:SetPoint("TOPLEFT", COL_NAME_X, headerY)
     nameHeader:SetTextColor(1, 0.82, 0)
     nameHeader:SetText("Name")
 
     local reasonHeader = inset:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    reasonHeader:SetPoint("TOPLEFT", 140, headerY)
+    reasonHeader:SetPoint("TOPLEFT", COL_REASON_X, headerY)
     reasonHeader:SetTextColor(1, 0.82, 0)
     reasonHeader:SetText("Reason")
 
     local dateHeader = inset:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    dateHeader:SetPoint("TOPLEFT", 320, headerY)
+    dateHeader:SetPoint("TOPLEFT", COL_DATE_X, headerY)
     dateHeader:SetTextColor(1, 0.82, 0)
     dateHeader:SetText("Added")
 
-    -- Divider line
+    -- Divider line below headers
     local divider = inset:CreateTexture(nil, "OVERLAY")
     divider:SetHeight(1)
-    divider:SetPoint("TOPLEFT", 6, headerY - 14)
-    divider:SetPoint("TOPRIGHT", -6, headerY - 14)
+    divider:SetPoint("TOPLEFT", SCROLL_PAD, headerY - 14)
+    divider:SetPoint("TOPRIGHT", -SCROLL_PAD, headerY - 14)
     divider:SetColorTexture(0.4, 0.4, 0.4, 0.8)
 
     -- ============================================
     -- SCROLL FRAME
     -- ============================================
     local scrollFrame = CreateFrame("ScrollFrame", "BlacklistScrollFrame", inset, "FauxScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 6, headerY - 18)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -28, 80)
+    scrollFrame:SetPoint("TOPLEFT", SCROLL_PAD, headerY - 18)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -28, 118)
 
     GUI.scrollFrame = scrollFrame
 
@@ -119,8 +140,10 @@ local function CreateGUI()
     GUI.rows = {}
     for i = 1, VISIBLE_ROWS do
         local row = CreateFrame("Button", "BlacklistRow" .. i, inset)
-        row:SetSize(420, ROW_HEIGHT)
+        row:SetHeight(ROW_HEIGHT)
+        -- Anchor left and right to the scroll frame so rows fill the available width
         row:SetPoint("TOPLEFT", scrollFrame, "TOPLEFT", 0, -((i - 1) * ROW_HEIGHT))
+        row:SetPoint("RIGHT", scrollFrame, "RIGHT", 0, 0)
 
         -- Highlight texture
         local highlight = row:CreateTexture(nil, "HIGHLIGHT")
@@ -134,30 +157,33 @@ local function CreateGUI()
             bg:SetColorTexture(0.15, 0.15, 0.15, 0.4)
         end
 
-        -- Name text
+        -- Name text (offset from row LEFT to match header position)
+        local nameOff = COL_NAME_X - SCROLL_PAD
         row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        row.nameText:SetPoint("LEFT", 4, 0)
-        row.nameText:SetWidth(120)
+        row.nameText:SetPoint("LEFT", nameOff, 0)
+        row.nameText:SetWidth(COL_REASON_X - COL_NAME_X - 6)
         row.nameText:SetJustifyH("LEFT")
 
         -- Reason text
+        local reasonOff = COL_REASON_X - SCROLL_PAD
         row.reasonText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        row.reasonText:SetPoint("LEFT", 134, 0)
-        row.reasonText:SetWidth(170)
+        row.reasonText:SetPoint("LEFT", reasonOff, 0)
+        row.reasonText:SetWidth(COL_DATE_X - COL_REASON_X - 6)
         row.reasonText:SetJustifyH("LEFT")
         row.reasonText:SetTextColor(0.8, 0.8, 0.8)
 
         -- Date text
+        local dateOff = COL_DATE_X - SCROLL_PAD
         row.dateText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        row.dateText:SetPoint("LEFT", 314, 0)
-        row.dateText:SetWidth(80)
+        row.dateText:SetPoint("LEFT", dateOff, 0)
+        row.dateText:SetWidth(78)
         row.dateText:SetJustifyH("LEFT")
         row.dateText:SetTextColor(0.6, 0.6, 0.6)
 
-        -- Remove button (small X)
+        -- Remove button (small X, kept inside the row)
         row.removeBtn = CreateFrame("Button", nil, row, "UIPanelCloseButton")
-        row.removeBtn:SetSize(20, 20)
-        row.removeBtn:SetPoint("RIGHT", row, "RIGHT", 18, 0)
+        row.removeBtn:SetSize(18, 18)
+        row.removeBtn:SetPoint("RIGHT", row, "RIGHT", -2, 0)
         row.removeBtn:SetScript("OnClick", function()
             if row.playerName then
                 Blacklist:RemovePlayer(row.playerName)
@@ -215,44 +241,49 @@ local function CreateGUI()
     -- ============================================
     -- BOTTOM PANEL: ADD PLAYER
     -- ============================================
-    local bottomY = 72
 
-    -- Add label
+    -- Divider line above the bottom panel
+    local bottomDivider = inset:CreateTexture(nil, "OVERLAY")
+    bottomDivider:SetHeight(1)
+    bottomDivider:SetPoint("BOTTOMLEFT", SCROLL_PAD, 112)
+    bottomDivider:SetPoint("BOTTOMRIGHT", -SCROLL_PAD, 112)
+    bottomDivider:SetColorTexture(0.4, 0.4, 0.4, 0.6)
+
+    -- "Add Player" section label
     local addLabel = inset:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    addLabel:SetPoint("BOTTOMLEFT", 6, bottomY)
+    addLabel:SetPoint("BOTTOMLEFT", COL_NAME_X, 94)
     addLabel:SetTextColor(1, 0.82, 0)
-    addLabel:SetText("Add Player:")
+    addLabel:SetText("Add Player")
 
-    bottomY = bottomY - 4
-
-    -- Name input
+    -- Row 1: Name input + Reason input + Add button  (labels above)
     local nameLabel = inset:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    nameLabel:SetPoint("BOTTOMLEFT", 6, bottomY - 20)
+    nameLabel:SetPoint("BOTTOMLEFT", COL_NAME_X, 74)
     nameLabel:SetText("Name:")
+    nameLabel:SetTextColor(0.7, 0.7, 0.7)
 
     local nameInput = CreateFrame("EditBox", "BlacklistAddNameInput", inset, "InputBoxTemplate")
-    nameInput:SetPoint("BOTTOMLEFT", 50, bottomY - 23)
-    nameInput:SetSize(120, 20)
+    nameInput:SetPoint("BOTTOMLEFT", COL_NAME_X, 52)
+    nameInput:SetSize(124, 22)
     nameInput:SetAutoFocus(false)
     nameInput:SetMaxLetters(24)
     GUI.nameInput = nameInput
 
-    -- Reason input
     local reasonLabel = inset:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    reasonLabel:SetPoint("BOTTOMLEFT", 180, bottomY - 20)
+    reasonLabel:SetPoint("BOTTOMLEFT", COL_REASON_X, 74)
     reasonLabel:SetText("Reason:")
+    reasonLabel:SetTextColor(0.7, 0.7, 0.7)
 
     local reasonInput = CreateFrame("EditBox", "BlacklistAddReasonInput", inset, "InputBoxTemplate")
-    reasonInput:SetPoint("BOTTOMLEFT", 228, bottomY - 23)
-    reasonInput:SetSize(140, 20)
+    reasonInput:SetPoint("BOTTOMLEFT", COL_REASON_X, 52)
+    reasonInput:SetSize(200, 22)
     reasonInput:SetAutoFocus(false)
     reasonInput:SetMaxLetters(128)
     GUI.reasonInput = reasonInput
 
-    -- Add button
+    -- Add button (anchored to the right of the reason input)
     local addBtn = CreateFrame("Button", nil, inset, "UIPanelButtonTemplate")
-    addBtn:SetPoint("BOTTOMLEFT", 376, bottomY - 24)
-    addBtn:SetSize(60, 22)
+    addBtn:SetPoint("LEFT", reasonInput, "RIGHT", 6, 0)
+    addBtn:SetSize(64, 22)
     addBtn:SetText("Add")
     addBtn:SetScript("OnClick", function()
         local name = strtrim(nameInput:GetText() or "")
@@ -282,10 +313,13 @@ local function CreateGUI()
     nameInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     reasonInput:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
-    -- Target fill button (fills name from current target)
+    -- Row 2: Action buttons along the bottom
+    local btnY = 16
+    local btnH = 22
+
     local targetBtn = CreateFrame("Button", nil, inset, "UIPanelButtonTemplate")
-    targetBtn:SetPoint("BOTTOMLEFT", 6, bottomY - 50)
-    targetBtn:SetSize(80, 22)
+    targetBtn:SetPoint("BOTTOMLEFT", COL_NAME_X, btnY)
+    targetBtn:SetSize(100, btnH)
     targetBtn:SetText("Use Target")
     targetBtn:SetScript("OnClick", function()
         if UnitExists("target") and UnitIsPlayer("target") then
@@ -296,10 +330,19 @@ local function CreateGUI()
         end
     end)
 
-    -- Clear all button
+    local settingsBtn = CreateFrame("Button", nil, inset, "UIPanelButtonTemplate")
+    settingsBtn:SetPoint("LEFT", targetBtn, "RIGHT", 6, 0)
+    settingsBtn:SetSize(100, btnH)
+    settingsBtn:SetText("Settings")
+    settingsBtn:SetScript("OnClick", function()
+        if Blacklist_OpenOptions then
+            Blacklist_OpenOptions()
+        end
+    end)
+
     local clearAllBtn = CreateFrame("Button", nil, inset, "UIPanelButtonTemplate")
-    clearAllBtn:SetPoint("BOTTOMRIGHT", -6, bottomY - 50)
-    clearAllBtn:SetSize(80, 22)
+    clearAllBtn:SetPoint("BOTTOMRIGHT", -SCROLL_PAD, btnY)
+    clearAllBtn:SetSize(100, btnH)
     clearAllBtn:SetText("Clear All")
     clearAllBtn:SetScript("OnClick", function()
         StaticPopup_Show("BLACKLIST_CLEAR_ALL")
@@ -424,7 +467,11 @@ function Blacklist_GUI_Refresh()
 
     -- Update count
     local totalCount = Blacklist:GetPlayerCount()
-    GUI.countText:SetText(totalCount .. " player" .. (totalCount ~= 1 and "s" or ""))
+    if currentFilter ~= "" then
+        GUI.countText:SetText(total .. " / " .. totalCount)
+    else
+        GUI.countText:SetText(totalCount .. " player" .. (totalCount ~= 1 and "s" or ""))
+    end
 end
 
 -- ============================================
