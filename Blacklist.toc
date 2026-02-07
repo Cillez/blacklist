@@ -1,0 +1,12 @@
+## Interface: 20505
+## Title: |cffcc3333Blacklist|r
+## Version: 1.0
+## Notes: PvP blacklist tracker. Alerts you when blacklisted players are nearby.
+## DefaultState: enabled
+## Author: Cillez
+## SavedVariables: BlacklistDB
+
+Blacklist_Utils.lua
+Blacklist_Core.lua
+Blacklist_GUI.lua
+Blacklist_Options.lua
