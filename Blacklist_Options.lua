@@ -162,6 +162,7 @@ function Blacklist_CreateOptions()
     helpText:SetText(
         "|cffffd700/bl|r or |cffffd700/blacklist|r - Open blacklist window\n" ..
         "|cffffd700/bl add <name> [reason]|r - Add player to blacklist\n" ..
+        "|cffffd700/bl quickadd|r (or |cffffd700/bl qa|r) - Quick add target (prompts for reason)\n" ..
         "|cffffd700/bl remove <name>|r - Remove player\n" ..
         "|cffffd700/bl check|r - Check current target\n" ..
         "|cffffd700/bl config|r - Open this settings panel\n" ..

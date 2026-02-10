@@ -100,6 +100,83 @@ StaticPopupDialogs["BLACKLIST_ADD_KILLER"] = {
     hideOnEscape = true,
 }
 
+-- State variables for quick-add popup (same pattern as BLACKLIST_EDIT_REASON)
+local quickAddName = nil
+local quickAddInfo = nil
+local quickAddReason = ""
+
+-- StaticPopup definition for quick-adding a player (used by /bl quickadd and right-click menu)
+StaticPopupDialogs["BLACKLIST_QUICKADD"] = {
+    text = "Add |cffff0000%s|r to your blacklist?\nEnter a reason (optional):",
+    button1 = "Add",
+    button2 = "Cancel",
+    hasEditBox = true,
+    editBoxWidth = 260,
+    maxLetters = 128,
+    OnShow = function(self)
+        self.editBox:SetText("")
+        quickAddReason = ""
+        self.editBox:SetFocus()
+    end,
+    OnAccept = function(self)
+        local name = quickAddName
+        if not name or name == "" then return end
+        local reason = quickAddReason
+        -- Try reading directly from the edit box as well
+        if self and self.editBox then
+            reason = self.editBox:GetText() or reason
+        end
+        reason = strtrim(reason or "")
+        if reason == "" then reason = "Quick added" end
+
+        Blacklist:AddPlayer(name, reason, quickAddInfo)
+
+        if Blacklist_GUI_Refresh then
+            Blacklist_GUI_Refresh()
+        end
+    end,
+    EditBoxOnTextChanged = function(self)
+        quickAddReason = self:GetText() or ""
+    end,
+    EditBoxOnEnterPressed = function(self)
+        local parent = self:GetParent()
+        local name = quickAddName
+        if not name or name == "" then parent:Hide() return end
+        local reason = strtrim(self:GetText() or "")
+        if reason == "" then reason = "Quick added" end
+
+        Blacklist:AddPlayer(name, reason, quickAddInfo)
+
+        if Blacklist_GUI_Refresh then
+            Blacklist_GUI_Refresh()
+        end
+        parent:Hide()
+    end,
+    EditBoxOnEscapePressed = function(self)
+        self:GetParent():Hide()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
+-- Helper to show the quick-add popup for a given player name and optional unit info
+local function ShowQuickAddPopup(name, unitInfo)
+    if not name or name == "" then return end
+    if Blacklist:IsBlacklisted(name) then
+        Blacklist:Print(name .. " is already on your blacklist.", "WARNING")
+        return
+    end
+    -- Store in module-level variables before showing the popup
+    quickAddName = name
+    quickAddInfo = unitInfo
+    quickAddReason = ""
+    local popup = StaticPopup_Show("BLACKLIST_QUICKADD", name)
+    if popup then
+        popup.data = name
+    end
+end
+
 local function ShowDeathPopup()
     if not lastAttacker then return end
     if not Blacklist:GetSetting("deathPopup") then return end
@@ -114,6 +191,86 @@ local function ShowDeathPopup()
     local popup = StaticPopup_Show("BLACKLIST_ADD_KILLER", lastAttacker)
     if popup then
         popup.data = lastAttacker
+    end
+end
+
+-- ============================================
+-- NAMEPLATE REASON OVERLAY
+-- ============================================
+
+-- Table to track overlay frames we've attached to nameplates
+local nameplateOverlays = {}
+
+-- Attach or update a blacklist reason overlay on a nameplate
+local function AttachNameplateOverlay(nameplate, name, entry)
+    if not nameplate then return end
+
+    local overlay = nameplateOverlays[nameplate]
+    if not overlay then
+        overlay = CreateFrame("Frame", nil, nameplate)
+        overlay:SetSize(200, 30)
+        overlay:SetPoint("BOTTOM", nameplate, "TOP", 0, 0)
+        overlay:SetFrameStrata("HIGH")
+
+        overlay.text = overlay:CreateFontString(nil, "OVERLAY")
+        overlay.text:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
+        overlay.text:SetPoint("BOTTOM", overlay, "BOTTOM", 0, 0)
+        overlay.text:SetWidth(200)
+        overlay.text:SetJustifyH("CENTER")
+        overlay.text:SetWordWrap(true)
+        overlay.text:SetShadowOffset(1, -1)
+
+        nameplateOverlays[nameplate] = overlay
+    end
+
+    local reason = entry.reason or ""
+    local displayText = "|cffff9966" .. (reason ~= "" and reason or "Blacklisted") .. "|r"
+
+    overlay.text:SetText(displayText)
+    overlay:Show()
+end
+
+-- Remove a blacklist overlay from a nameplate
+local function RemoveNameplateOverlay(nameplate)
+    local overlay = nameplateOverlays[nameplate]
+    if overlay then
+        overlay:Hide()
+    end
+end
+
+-- Check a nameplate unit and attach overlay if blacklisted
+local function UpdateNameplateOverlay(unit)
+    if not Blacklist:GetSetting("enabled") then return end
+
+    local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
+    if not nameplate then return end
+
+    if not UnitIsPlayer(unit) then
+        RemoveNameplateOverlay(nameplate)
+        return
+    end
+
+    local name = Blacklist:StripRealm(UnitName(unit))
+    if not name then
+        RemoveNameplateOverlay(nameplate)
+        return
+    end
+
+    local entry = Blacklist:GetPlayer(name)
+    if not entry then
+        RemoveNameplateOverlay(nameplate)
+        return
+    end
+
+    AttachNameplateOverlay(nameplate, name, entry)
+end
+
+-- Clean up when a nameplate is removed
+local function CleanupNameplate(nameplate)
+    local overlay = nameplateOverlays[nameplate]
+    if overlay then
+        overlay:Hide()
+        nameplateOverlays[nameplate] = nil
     end
 end
 
@@ -175,6 +332,9 @@ end
 
 -- Check nameplate unit
 local function CheckNameplate(unit)
+    -- Always update the nameplate overlay regardless of alert settings
+    UpdateNameplateOverlay(unit)
+
     if not Blacklist:GetSetting("notifyNameplate") then return end
     if not UnitExists(unit) then return end
     if not UnitIsPlayer(unit) then return end
@@ -262,6 +422,14 @@ local function OnEvent(self, event, arg1, ...)
         return
     end
 
+    if event == "NAME_PLATE_UNIT_REMOVED" then
+        local nameplate = C_NamePlate.GetNamePlateForUnit(arg1)
+        if nameplate then
+            CleanupNameplate(nameplate)
+        end
+        return
+    end
+
     -- Clear last attacker on respawn
     if event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
         lastAttacker = nil
@@ -283,6 +451,7 @@ frame:RegisterEvent("PLAYER_UNGHOST")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 
 -- ============================================
 -- SLASH COMMANDS
@@ -322,6 +491,21 @@ local function HandleSlashCommand(msg)
 
         if Blacklist_GUI_Refresh then
             Blacklist_GUI_Refresh()
+        end
+        return
+    end
+
+    -- Quick add (target-based, no prompt)
+    if cmd == "quickadd" or cmd == "qa" then
+        if UnitExists("target") and UnitIsPlayer("target") then
+            local name = Blacklist:StripRealm(UnitName("target"))
+            local info = Blacklist:GetUnitInfo("target")
+            Blacklist:AddPlayer(name, "Added via /bl quickadd", info)
+            if Blacklist_GUI_Refresh then
+                Blacklist_GUI_Refresh()
+            end
+        else
+            Blacklist:Print("No player targeted. Target a player first.", "WARNING")
         end
         return
     end
@@ -372,6 +556,7 @@ local function HandleSlashCommand(msg)
         Blacklist:Print("=== Blacklist Commands ===", "INFO")
         Blacklist:Print("/bl - Open blacklist window", "INFO")
         Blacklist:Print("/bl add <name> [reason] - Add player", "INFO")
+        Blacklist:Print("/bl quickadd - Quick add target (prompts for reason)", "INFO")
         Blacklist:Print("/bl remove <name> - Remove player", "INFO")
         Blacklist:Print("/bl check - Check current target", "INFO")
         Blacklist:Print("/bl config - Open settings", "INFO")
